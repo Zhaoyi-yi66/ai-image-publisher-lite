@@ -1,0 +1,61 @@
+name: Build and publish Windows release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/release.yml
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements-build.txt
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build single-file EXE
+        run: >-
+          python -m PyInstaller
+          --noconfirm
+          --clean
+          --onefile
+          --windowed
+          --name AIImagePublisherLite
+          --icon assets/app.ico
+          --add-data "assets;assets"
+          app.py
+
+      - name: Create or update v1.0.0 release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view v1.0.0 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload v1.0.0 dist/AIImagePublisherLite.exe --clobber
+          } else {
+            gh release create v1.0.0 dist/AIImagePublisherLite.exe `
+              --target main `
+              --title "AI Image Publisher Lite v1.0.0" `
+              --notes-file RELEASE_NOTES.md `
+              --latest
+          }
+
