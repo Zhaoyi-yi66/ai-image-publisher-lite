@@ -9,6 +9,12 @@
   面向 AI 生成图片和日常图片的多平台发布前处理。
 </p>
 
+## 直接下载
+
+[下载 AIImagePublisherLite.exe（Windows 10/11 64 位）](https://github.com/Zhaoyi-yi66/ai-image-publisher-lite/releases/latest/download/AIImagePublisherLite.exe)
+
+无需安装 Python。下载后双击 EXE 即可运行；如果 Windows 首次启动时显示安全提示，请核对文件来自本仓库 Release 页面后再决定是否运行。
+
 ## 项目简介
 
 AI Image Publisher Lite 用于在图片发布到 Instagram、TikTok、YouTube、小红书或网站前，统一完成尺寸适配、格式转换、压缩和常见隐私元数据清理。
