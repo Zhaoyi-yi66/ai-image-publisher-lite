@@ -1,0 +1,12 @@
+.buildenv/
+.venv/
+build/
+dist/
+*.spec
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.idea/
+.vscode/
+AI图片处理结果_*/
+
