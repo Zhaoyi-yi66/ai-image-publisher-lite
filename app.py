@@ -20,19 +20,19 @@ from tkinter import ttk
 
 DND_AVAILABLE = sys.platform == "win32"
 
-from image_processor import PRESETS, ProcessOptions, process_one
+from image_processor import CUSTOM_PRESET_NAME, PRESETS, ProcessOptions, process_one
 
 
 APP_TITLE = "AI 图片多平台处理工具"
 SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
-COLOR_BG = "#F3F6FA"
+COLOR_BG = "#EEF2F7"
 COLOR_CARD = "#FFFFFF"
-COLOR_TEXT = "#172033"
-COLOR_MUTED = "#667085"
-COLOR_PRIMARY = "#2563EB"
-COLOR_PRIMARY_HOVER = "#1D4ED8"
-COLOR_BORDER = "#DCE3EC"
-COLOR_SOFT_BLUE = "#EAF2FF"
+COLOR_TEXT = "#162033"
+COLOR_MUTED = "#697386"
+COLOR_PRIMARY = "#4F46E5"
+COLOR_PRIMARY_HOVER = "#4338CA"
+COLOR_BORDER = "#D8DEE9"
+COLOR_SOFT_BLUE = "#EEF2FF"
 
 
 class ImagePublisherApp:
@@ -62,8 +62,11 @@ class ImagePublisherApp:
         self.last_destination: Path | None = None
 
         self.mode_var = tk.StringVar(value="留白")
+        self.crop_anchor_var = tk.StringVar(value="居中")
         self.format_var = tk.StringVar(value="保持原格式")
         self.quality_var = tk.IntVar(value=90)
+        self.custom_width_var = tk.StringVar(value="1080")
+        self.custom_height_var = tk.StringVar(value="1440")
         self.status_var = tk.StringVar(value="请添加图片")
         self.preset_vars = {
             name: tk.BooleanVar(value=name == "原图尺寸（默认）")
@@ -73,6 +76,8 @@ class ImagePublisherApp:
         self._configure_style()
         self._build_ui()
         self._sync_quality_control()
+        self._sync_custom_controls()
+        self._sync_crop_controls()
         self._drop_callback = None
         self._old_window_proc = None
         if DND_AVAILABLE:
@@ -110,6 +115,7 @@ class ImagePublisherApp:
             thickness=9,
         )
         style.configure("TCombobox", padding=5)
+        style.configure("Modern.TEntry", padding=6, fieldbackground="#F8FAFC")
         style.configure("Horizontal.TScale", background=COLOR_CARD, troughcolor="#DCE6F4")
 
     def _build_ui(self) -> None:
@@ -158,6 +164,13 @@ class ImagePublisherApp:
 
         header = tk.Frame(container, background=COLOR_BG)
         header.pack(fill="x")
+        logo_path = BASE_DIR / "assets" / "app-icon.png"
+        if logo_path.exists():
+            try:
+                self.logo_image = tk.PhotoImage(file=str(logo_path)).subsample(4, 4)
+                tk.Label(header, image=self.logo_image, background=COLOR_BG).pack(side="left", padx=(0, 12))
+            except tk.TclError:
+                self.logo_image = None
         title_block = tk.Frame(header, background=COLOR_BG)
         title_block.pack(side="left")
         tk.Label(
@@ -169,7 +182,7 @@ class ImagePublisherApp:
         ).pack(anchor="w")
         tk.Label(
             title_block,
-            text="批量适配平台尺寸 · 清理隐私元数据 · 压缩并导出图片",
+            text="自定义尺寸与智能裁剪 · 深度清理元数据 · 批量导出",
             background=COLOR_BG,
             foreground=COLOR_MUTED,
             font=("Microsoft YaHei UI", 9),
@@ -190,8 +203,8 @@ class ImagePublisherApp:
         self.info_label = tk.Label(
             info,
             text=(
-                "用途：把 PNG、JPG、WebP 批量转换成各平台常用尺寸，自动旋转、转换 sRGB、清理常见隐私信息，"
-                "最后直接导出到一个结果文件夹。仅用于格式与兼容性处理，不用于规避平台 AI 标注。"
+                "完全本地处理：支持原图、平台预设和任意自定义尺寸，可留白或按焦点裁剪；输出前重新构建纯像素图层，"
+                "清理常见 EXIF、GPS、XMP、文本与设备信息。仅用于格式与隐私处理，不用于规避平台 AI 标注。"
             ),
             background=COLOR_SOFT_BLUE,
             foreground="#244675",
@@ -260,7 +273,7 @@ class ImagePublisherApp:
         tk.Label(
             card,
             text="⬇  直接把图片拖到这里，松开后会自动加入",
-            background="#F3F7FF",
+            background="#F1F3FF",
             foreground=COLOR_PRIMARY,
             font=("Microsoft YaHei UI", 9, "bold"),
             padx=12,
@@ -289,8 +302,45 @@ class ImagePublisherApp:
         ).pack(anchor="w", pady=(9, 0))
 
     def _build_settings_panel(self, parent: tk.Frame) -> None:
-        presets = self._settings_card(parent, "② 选择平台尺寸")
+        presets = self._settings_card(parent, "② 选择输出尺寸")
         for name, variable in self.preset_vars.items():
+            if name == CUSTOM_PRESET_NAME:
+                custom_box = tk.Frame(presets, background="#F8FAFC", padx=9, pady=8)
+                custom_box.pack(fill="x", pady=(4, 2))
+                tk.Checkbutton(
+                    custom_box,
+                    text="自定义尺寸",
+                    variable=variable,
+                    command=self._sync_custom_controls,
+                    background="#F8FAFC",
+                    activebackground="#F8FAFC",
+                    foreground=COLOR_TEXT,
+                    selectcolor="#F8FAFC",
+                    anchor="w",
+                    highlightthickness=0,
+                    padx=0,
+                ).pack(anchor="w")
+                size_row = tk.Frame(custom_box, background="#F8FAFC")
+                size_row.pack(fill="x", pady=(7, 0))
+                self.custom_width_entry = ttk.Entry(
+                    size_row,
+                    textvariable=self.custom_width_var,
+                    width=7,
+                    justify="center",
+                    style="Modern.TEntry",
+                )
+                self.custom_width_entry.pack(side="left")
+                tk.Label(size_row, text="×", background="#F8FAFC", foreground=COLOR_MUTED).pack(side="left", padx=6)
+                self.custom_height_entry = ttk.Entry(
+                    size_row,
+                    textvariable=self.custom_height_var,
+                    width=7,
+                    justify="center",
+                    style="Modern.TEntry",
+                )
+                self.custom_height_entry.pack(side="left")
+                tk.Label(size_row, text="像素", background="#F8FAFC", foreground=COLOR_MUTED).pack(side="left", padx=(7, 0))
+                continue
             tk.Checkbutton(
                 presets,
                 text=name,
@@ -316,6 +366,7 @@ class ImagePublisherApp:
                 text=text,
                 variable=self.mode_var,
                 value=value,
+                command=self._sync_crop_controls,
                 background=COLOR_CARD,
                 activebackground=COLOR_CARD,
                 foreground=COLOR_TEXT,
@@ -324,6 +375,18 @@ class ImagePublisherApp:
                 highlightthickness=0,
                 padx=0,
             ).pack(fill="x", anchor="w", pady=1)
+
+        crop_row = tk.Frame(layout, background="#F8FAFC", padx=9, pady=7)
+        crop_row.pack(fill="x", pady=(7, 0))
+        tk.Label(crop_row, text="裁剪焦点", background="#F8FAFC", foreground=COLOR_TEXT).pack(side="left")
+        self.crop_anchor_box = ttk.Combobox(
+            crop_row,
+            textvariable=self.crop_anchor_var,
+            values=("居中", "上方", "下方", "左侧", "右侧"),
+            state="readonly",
+            width=8,
+        )
+        self.crop_anchor_box.pack(side="right")
 
         export = self._settings_card(parent, "④ 压缩与输出", pady=(10, 0), expand=True)
         format_row = tk.Frame(export, background=COLOR_CARD)
@@ -408,6 +471,7 @@ class ImagePublisherApp:
     def _set_all_presets(self, selected: bool) -> None:
         for variable in self.preset_vars.values():
             variable.set(selected)
+        self._sync_custom_controls()
 
     def _settings_card(
         self,
@@ -569,6 +633,18 @@ class ImagePublisherApp:
             self.quality_var.set(90)
         self._quality_changed(str(self.quality_var.get()))
 
+    def _sync_custom_controls(self) -> None:
+        if not hasattr(self, "custom_width_entry"):
+            return
+        state = "normal" if self.preset_vars[CUSTOM_PRESET_NAME].get() else "disabled"
+        self.custom_width_entry.configure(state=state)
+        self.custom_height_entry.configure(state=state)
+
+    def _sync_crop_controls(self) -> None:
+        if not hasattr(self, "crop_anchor_box"):
+            return
+        self.crop_anchor_box.configure(state="readonly" if self.mode_var.get() == "裁切" else "disabled")
+
     def _quality_changed(self, _value: str) -> None:
         if self.format_var.get() == "保持原格式":
             self.quality_label.configure(text="压缩参数：智能默认")
@@ -582,14 +658,36 @@ class ImagePublisherApp:
     def _selected_presets(self) -> list[str]:
         return [name for name, variable in self.preset_vars.items() if variable.get()]
 
+    @staticmethod
+    def _parse_custom_size(width: str, height: str) -> tuple[int, int]:
+        try:
+            parsed_width = int(width.strip())
+            parsed_height = int(height.strip())
+        except ValueError as exc:
+            raise ValueError("自定义宽高必须是整数") from exc
+        if not 16 <= parsed_width <= 20000 or not 16 <= parsed_height <= 20000:
+            raise ValueError("自定义宽高需在 16–20000 像素之间")
+        return parsed_width, parsed_height
+
     def _start_processing(self) -> None:
         presets = self._selected_presets()
         if not self.files:
             messagebox.showwarning("缺少图片", "请先添加至少一张图片。")
             return
         if not presets:
-            messagebox.showwarning("缺少预设", "请至少选择一个平台预设。")
+            messagebox.showwarning("缺少尺寸", "请至少选择一个输出尺寸。")
             return
+
+        custom_size = None
+        if CUSTOM_PRESET_NAME in presets:
+            try:
+                custom_size = self._parse_custom_size(
+                    self.custom_width_var.get(),
+                    self.custom_height_var.get(),
+                )
+            except ValueError as exc:
+                messagebox.showwarning("自定义尺寸无效", str(exc))
+                return
 
         single_mode = len(self.files) == 1
         if single_mode:
@@ -607,6 +705,7 @@ class ImagePublisherApp:
         selected_format = self.format_var.get()
         options = ProcessOptions(
             mode=self.mode_var.get(),
+            crop_anchor=self.crop_anchor_var.get(),
             output_format="SOURCE" if selected_format == "保持原格式" else selected_format.upper(),
             quality=value if selected_format not in {"PNG", "保持原格式"} else 90,
             png_compress_level=value if selected_format == "PNG" else 6,
@@ -620,7 +719,7 @@ class ImagePublisherApp:
         self.status_var.set("正在处理并导出图片…")
         threading.Thread(
             target=self._process_worker,
-            args=(list(self.files), presets, options, destination, create_destination, single_mode),
+            args=(list(self.files), presets, options, custom_size, destination, create_destination, single_mode),
             daemon=True,
         ).start()
         self.root.after(100, self._poll_worker)
@@ -630,6 +729,7 @@ class ImagePublisherApp:
         files: list[Path],
         presets: list[str],
         options: ProcessOptions,
+        custom_size: tuple[int, int] | None,
         destination: Path,
         create_destination: bool,
         single_mode: bool,
@@ -654,7 +754,7 @@ class ImagePublisherApp:
                 continue
             for preset in presets:
                 try:
-                    output_name, content = process_one(source, path.name, preset, options)
+                    output_name, content = process_one(source, path.name, preset, options, custom_size)
                     unique_name = self._unique_output_name(output_name, used_names, destination)
                     (destination / unique_name).write_bytes(content)
                     used_names.add(unique_name)
@@ -695,11 +795,11 @@ class ImagePublisherApp:
         messagebox.showinfo(
             "使用说明",
             "1. 添加或拖入 PNG、JPG、WebP 图片。\n"
-            "2. 默认保留原图尺寸，也可以选择一个或多个平台尺寸。\n"
-            "3. 选择留白或裁切，并设置输出格式。\n"
+            "2. 默认保留原图尺寸，也可以选择平台尺寸或填写自定义宽高。\n"
+            "3. 选择留白或裁切；裁切时可指定居中、上、下、左、右焦点。\n"
             "4. 点击窗口右下角蓝色的“开始处理并导出”。\n"
             "5. 单张图片自动保存到桌面；批量图片可选择目录，程序会创建结果文件夹。\n\n"
-            "程序会自动旋转图片、转换 sRGB，并在重新编码时清理常见 EXIF、GPS、设备信息。\n\n"
+            "程序会自动旋转、转换 sRGB，并通过重新构建像素图层清理常见 EXIF、GPS、XMP、文本和设备信息。\n\n"
             "请注意：本工具不保证移除平台可检测的 AI/C2PA 信号，也不用于规避平台 AI 标注要求。",
         )
 

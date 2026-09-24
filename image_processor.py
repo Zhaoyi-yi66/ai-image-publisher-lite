@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import io
 import re
-import zipfile
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Iterable
 
 from PIL import Image, ImageCms, ImageOps
 
 
+CUSTOM_PRESET_NAME = "自定义尺寸"
 PRESETS = {
     "原图尺寸（默认）": "original",
+    CUSTOM_PRESET_NAME: "custom",
     "Instagram 竖版 (1080×1350)": (1080, 1350),
     "TikTok 竖版 (1080×1920)": (1080, 1920),
     "YouTube 封面 (1280×720)": (1280, 720),
@@ -25,6 +25,7 @@ FORMAT_EXTENSIONS = {"JPEG": "jpg", "WEBP": "webp", "PNG": "png"}
 @dataclass(frozen=True)
 class ProcessOptions:
     mode: str = "留白"
+    crop_anchor: str = "居中"
     output_format: str = "SOURCE"
     quality: int = 90
     png_compress_level: int = 6
@@ -45,7 +46,7 @@ def normalize_image(source: bytes) -> Image.Image:
             image = opened.copy()
         image.load()
         image = _to_srgb(image)
-        return image.copy()
+        return _pixels_only(image)
 
 
 def source_format(source: bytes) -> str:
@@ -84,6 +85,7 @@ def resize_for_preset(
     target: tuple[int, int] | None | str,
     mode: str,
     background: tuple[int, int, int],
+    crop_anchor: str = "居中",
 ) -> Image.Image:
     if target == "original":
         return image.copy()
@@ -94,11 +96,18 @@ def resize_for_preset(
         return copy
 
     if mode == "裁切":
+        centering = {
+            "居中": (0.5, 0.5),
+            "上方": (0.5, 0.0),
+            "下方": (0.5, 1.0),
+            "左侧": (0.0, 0.5),
+            "右侧": (1.0, 0.5),
+        }.get(crop_anchor, (0.5, 0.5))
         return ImageOps.fit(
             image,
             target,
             method=Image.Resampling.LANCZOS,
-            centering=(0.5, 0.5),
+            centering=centering,
         )
 
     contained = ImageOps.contain(image, target, Image.Resampling.LANCZOS)
@@ -128,8 +137,15 @@ def encode_image(image: Image.Image, options: ProcessOptions) -> bytes:
     else:
         raise ValueError(f"不支持的输出格式：{options.output_format}")
 
+    image = _pixels_only(image)
     image.save(output, format=output_format, **save_options)
     return output.getvalue()
+
+
+def _pixels_only(image: Image.Image) -> Image.Image:
+    """Rebuild an image from pixels so container metadata is not carried forward."""
+    normalized = image.convert("RGBA" if image.mode == "RGBA" else "RGB")
+    return Image.frombytes(normalized.mode, normalized.size, normalized.tobytes())
 
 
 def _flatten_alpha(image: Image.Image, background: tuple[int, int, int]) -> Image.Image:
@@ -145,14 +161,29 @@ def process_one(
     filename: str,
     preset_name: str,
     options: ProcessOptions,
+    custom_size: tuple[int, int] | None = None,
 ) -> tuple[str, bytes]:
     output_format = source_format(source) if options.output_format.upper() == "SOURCE" else options.output_format.upper()
     resolved_options = replace(options, output_format=output_format)
     image = normalize_image(source)
-    resized = resize_for_preset(image, PRESETS[preset_name], options.mode, options.background)
+    target = PRESETS[preset_name]
+    if target == "custom":
+        if custom_size is None:
+            raise ValueError("请选择有效的自定义尺寸")
+        if not all(16 <= value <= 20000 for value in custom_size):
+            raise ValueError("自定义宽高需在 16–20000 像素之间")
+        target = custom_size
+    resized = resize_for_preset(
+        image,
+        target,
+        options.mode,
+        options.background,
+        options.crop_anchor,
+    )
     content = encode_image(resized, resolved_options)
     preset_slug = {
         "原图尺寸（默认）": "processed",
+        CUSTOM_PRESET_NAME: f"custom_{custom_size[0]}x{custom_size[1]}" if custom_size else "custom",
         "Instagram 竖版 (1080×1350)": "instagram_1080x1350",
         "TikTok 竖版 (1080×1920)": "tiktok_1080x1920",
         "YouTube 封面 (1280×720)": "youtube_1280x720",
@@ -165,27 +196,4 @@ def process_one(
     else:
         extension = FORMAT_EXTENSIONS[output_format]
     return f"{safe_stem(filename)}_{preset_slug}.{extension}", content
-
-
-def build_zip(files: Iterable[tuple[str, bytes]]) -> bytes:
-    output = io.BytesIO()
-    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        used_names: set[str] = set()
-        for filename, content in files:
-            unique_name = _unique_name(filename, used_names)
-            used_names.add(unique_name)
-            archive.writestr(unique_name, content)
-    return output.getvalue()
-
-
-def _unique_name(filename: str, used_names: set[str]) -> str:
-    if filename not in used_names:
-        return filename
-    path = Path(filename)
-    counter = 2
-    while True:
-        candidate = f"{path.stem}_{counter}{path.suffix}"
-        if candidate not in used_names:
-            return candidate
-        counter += 1
 

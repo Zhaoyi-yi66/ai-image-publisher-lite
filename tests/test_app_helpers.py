@@ -53,6 +53,13 @@ class AppHelperTests(unittest.TestCase):
             finally:
                 app.root.destroy()
 
+    def test_custom_size_validation(self):
+        self.assertEqual(ImagePublisherApp._parse_custom_size("1080", "1440"), (1080, 1440))
+        with self.assertRaisesRegex(ValueError, "整数"):
+            ImagePublisherApp._parse_custom_size("wide", "1440")
+        with self.assertRaisesRegex(ValueError, "16–20000"):
+            ImagePublisherApp._parse_custom_size("8", "1440")
+
 
 if __name__ == "__main__":
     unittest.main()
