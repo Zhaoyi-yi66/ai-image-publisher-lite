@@ -38,6 +38,7 @@ COLOR_SOFT_BLUE = "#EEF2FF"
 class ImagePublisherApp:
     def __init__(self) -> None:
         self.root = tk.Tk()
+        self.root.withdraw()
         self.root.title(APP_TITLE)
         icon_path = BASE_DIR / "assets" / "app.ico"
         if icon_path.exists():
@@ -847,6 +848,8 @@ class ImagePublisherApp:
         return Path.home() / "Desktop"
 
     def run(self) -> None:
+        self.root.update_idletasks()
+        self.root.deiconify()
         self.root.mainloop()
 
 
